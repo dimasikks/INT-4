@@ -1,0 +1,142 @@
+
+- name: CONFIGURE DEBIAN_11
+  hosts: debian_11
+  gather_facts: false
+  become: yes
+  tasks:
+   - name: INSTALL NECESSARY PACKAGES
+     ansible.builtin.apt:
+      name:
+       - curl
+       - wget
+       - iptables
+       - tcpdump
+       - htop
+       - net-tools
+       - fail2ban
+       - tmux
+       - ca-certificates
+       - rsyslog
+       - iptables
+       - auditd
+
+   - name: CONFIGURE FAIL2BAN (1)
+     file:
+      path: "/etc/fail2ban/jail.local"
+      state: touch
+
+   - name: CONFIGURE FAIL2BAN (2)
+     blockinfile:
+      path: "/etc/fail2ban/jail.local"
+      block: |
+       [DEFAULT]
+       maxretry = 4
+       findtime = 240
+       bantime = 360
+       action = iptables
+
+   - name: RESTART FAIL2BAN
+     systemd:
+      name: fail2ban
+      enabled: yes
+      state: restarted
+
+   - name: CONFIGURE IPTABLES | ALLOW SSH, HTTP, HTTPS, POSTGRESQL
+     iptables:
+      chain: INPUT
+      protocol: tcp
+      destination_ports:
+       - "22"
+       - "80"
+       - "443"
+       - "5432"
+      jump: ACCEPT
+
+   - name: DIRECTORY TO SAVE IPTABLES-RULES
+     file:
+      path: "/etc/iptables_conf"
+      state: directory
+      mode: '0755'
+
+   - name: SAVE IPTABLES-RULES
+     shell: iptables-save > /etc/iptables_conf/iptables_rules.conf
+
+   - name: CONFIGURE SSH (1)
+     lineinfile:
+      path: "/etc/ssh/sshd_config"
+      regexp: '^#PermitRootLogin'
+      line: 'PermitRootLogin no'
+      state: present
+
+   - name: CONFIGURE SSH (2)
+     lineinfile:
+      path: "/etc/ssh/sshd_config"
+      regexp: '^#PubkeyAuthentication'
+      line: 'PubkeyAuthentication yes'
+      state: present
+
+   - name: RESTART SSH
+     systemd:
+      name: ssh
+      state: restarted
+
+- name: DONWLOADING POSTGRESQL-16
+  hosts: debian_11
+  gather_facts: false
+  become: yes
+  tasks:
+   - name: ADD GPG KEY
+     apt_key:
+      url: "https://www.postgresql.org/media/keys/ACCC4CF8.asc"
+      state: present
+
+   - name: ADD REPO
+     apt_repository:
+      repo: "deb http://apt.postgresql.org/pub/repos/apt/ bullseye-pgdg main"
+      state: present
+
+   - name: UPDATE APT LIST
+     apt:
+      update_cache: yes
+
+   - name: INSTALL POSTGRESQL-16
+     apt:
+      name: "postgresql-{{ POSTGRESQL_VERSION }}"
+      state: present
+
+- name: CONFIGURE POSTGRESQL-16
+  hosts: debian_11
+  gather_facts: false
+  become: yes
+  tasks:
+   - name: START && ENABLE POSTGRESQL
+     systemd:
+      name: postgresql
+      enabled: yes
+      state: started
+
+   - name: SET POSTGRESQL PASSWORD FOR POSTGRES USER
+     become: true
+     become_user: postgres
+     command: psql -c "ALTER USER postgres PASSWORD '{{ POSTGRESQL_PASSWORD }}';"
+
+   - name: EDITING POSTGRESQL.CONF
+     lineinfile:
+      path: "/etc/postgresql/{{ POSTGRESQL_VERSION }}/main/postgresql.conf"
+      regexp: '^#listen_addresses ='
+      line: "listen_addresses = '*'"
+      state: present
+
+   - name: EDITING PG_HBA.CONF
+     lineinfile:
+      path: "/etc/postgresql/{{ POSTGRESQL_VERSION }}/main/pg_hba.conf"
+      line: 'host all all 0.0.0.0/0 md5'
+      state: present
+
+   - name: RESTART POSTGRESQL
+     systemd:
+      name: postgresql
+      state: restarted
+
+
+

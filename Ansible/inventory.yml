@@ -1,0 +1,9 @@
+all:
+ vars:
+  POSTGRESQL_VERSION: 16
+  POSTGRESQL_PASSWORD: postgres321
+ hosts:
+  debian_11:
+   ansible_host: 192.168.10.234
+   ansible_user: dmitry
+   ansible_ssh_password: dmitry321
